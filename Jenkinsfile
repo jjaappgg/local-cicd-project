@@ -6,7 +6,7 @@ pipeline {
         disableConcurrentBuilds()
     }
 
-    // Checks GitHub for new commits approximately every two minutes.
+    // Check GitHub for new commits approximately every two minutes.
     triggers {
         pollSCM('H/2 * * * *')
     }
@@ -75,21 +75,21 @@ pipeline {
 
                     trap 'docker rm -f "$TEST_CONTAINER" >/dev/null 2>&1 || true' EXIT
 
-                    for attempt in 1 2 3 4 5 6 7 8 9 10; do
-                      if curl --fail --silent \
-                        http://host.docker.internal:15000/health \
-                        | grep -q '"status":"ok"'; then
+                    for attempt in $(seq 1 15); do
+                        if curl --fail --silent \
+                          http://host.docker.internal:15000/health \
+                          | grep -q '"status":"ok"'; then
 
-                        echo "Application health check passed."
-                        exit 0
-                      fi
+                            echo "Application health check passed."
+                            exit 0
+                        fi
 
-                      echo "Waiting for test container... attempt ${attempt}/10"
-                      sleep 2
+                        echo "Waiting for test container... attempt ${attempt}/15"
+                        sleep 2
                     done
 
-                    docker logs "$TEST_CONTAINER" || true
                     echo "Application health check failed."
+                    docker logs "$TEST_CONTAINER" || true
                     exit 1
                 '''
             }
@@ -115,14 +115,47 @@ pipeline {
                 sh '''
                     set -eux
 
+                    echo "Checking deployed Docker container..."
+
                     docker ps --filter "name=^/${CONTAINER_NAME}$"
 
-                    curl --fail \
-                      --retry 10 \
-                      --retry-delay 2 \
-                      http://host.docker.internal:${APPLICATION_PORT}/health
+                    STATUS=$(docker inspect \
+                      --format='{{.State.Status}}' \
+                      "${CONTAINER_NAME}")
+
+                    if [ "$STATUS" != "running" ]; then
+                        echo "Container is not running."
+                        docker logs "${CONTAINER_NAME}" || true
+                        exit 1
+                    fi
+
+                    echo "Waiting for deployed application..."
+
+                    VERIFIED=false
+
+                    for attempt in $(seq 1 20); do
+                        if curl --fail --silent \
+                          http://host.docker.internal:${APPLICATION_PORT}/health \
+                          | grep -q '"status":"ok"'; then
+
+                            echo "Deployment health check passed."
+                            VERIFIED=true
+                            break
+                        fi
+
+                        echo "Waiting for deployment... attempt ${attempt}/20"
+                        sleep 2
+                    done
+
+                    if [ "$VERIFIED" != "true" ]; then
+                        echo "Deployment health check failed."
+                        docker logs "${CONTAINER_NAME}" || true
+                        exit 1
+                    fi
 
                     terraform -chdir=terraform output
+
+                    echo "Deployment verified successfully."
                 '''
             }
         }
