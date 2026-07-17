@@ -193,3 +193,4 @@ docker rm -f local-cicd-app
 ```
 
 This deletes the Jenkins volume, so Jenkins setup and job configuration will need to be repeated.
+# automated trigger test
