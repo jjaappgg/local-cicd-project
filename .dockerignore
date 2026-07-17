@@ -1,0 +1,9 @@
+.git
+.gitignore
+.terraform
+*.tfstate
+*.tfstate.*
+__pycache__
+*.pyc
+jenkins_home
+report/screenshots
