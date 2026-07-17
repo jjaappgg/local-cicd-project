@@ -21,7 +21,7 @@ def home():
       </head>
       <body>
         <div class="card">
-          <h1>Deployment successful!</h1>
+          <h1>Deployment successful! (Build 2)</h1>
           <p>This Flask application was built by <strong>Jenkins</strong>, deployed by <strong>Terraform</strong>, and is running in <strong>Docker</strong>.</p>
           <p>Health endpoint: <code>/health</code></p>
         </div>
