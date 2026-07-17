@@ -6,17 +6,16 @@ pipeline {
         disableConcurrentBuilds()
     }
 
-    // Satisfies the automated CI-trigger checkbox by checking GitHub
-    // for commits approximately every two minutes.
+    // Checks GitHub for new commits approximately every two minutes.
     triggers {
         pollSCM('H/2 * * * *')
     }
 
     environment {
         IMAGE_REPOSITORY = 'local-cicd-app'
-        CONTAINER_NAME   = 'local-cicd-app'
-        APPLICATION_PORT = '5000'
-        TF_IN_AUTOMATION = 'true'
+        CONTAINER_NAME    = 'local-cicd-app'
+        APPLICATION_PORT  = '5000'
+        TF_IN_AUTOMATION  = 'true'
     }
 
     stages {
@@ -30,10 +29,13 @@ pipeline {
             steps {
                 sh '''
                     set -eux
+
                     test -f Dockerfile
                     test -f Jenkinsfile
                     test -f terraform/main.tf
+
                     python3 -m py_compile app/app.py
+
                     terraform -chdir=terraform fmt -check
                     terraform -chdir=terraform init -input=false
                     terraform -chdir=terraform validate
@@ -45,6 +47,7 @@ pipeline {
             steps {
                 sh '''
                     set -eux
+
                     docker build \
                       --label ci.build.number=${BUILD_NUMBER} \
                       --label ci.git.commit=${GIT_COMMIT} \
@@ -59,16 +62,29 @@ pipeline {
             steps {
                 sh '''
                     set -eux
+
                     TEST_CONTAINER="${CONTAINER_NAME}-test-${BUILD_NUMBER}"
+
                     docker rm -f "$TEST_CONTAINER" >/dev/null 2>&1 || true
-                    docker run -d --rm --name "$TEST_CONTAINER" -p 15000:5000 ${IMAGE_REPOSITORY}:${BUILD_NUMBER}
+
+                    docker run -d \
+                      --rm \
+                      --name "$TEST_CONTAINER" \
+                      -p 15000:5000 \
+                      ${IMAGE_REPOSITORY}:${BUILD_NUMBER}
+
                     trap 'docker rm -f "$TEST_CONTAINER" >/dev/null 2>&1 || true' EXIT
 
                     for attempt in 1 2 3 4 5 6 7 8 9 10; do
-                      if curl --fail --silent http://localhost:15000/health | grep -q '"status":"ok"'; then
+                      if curl --fail --silent \
+                        http://host.docker.internal:15000/health \
+                        | grep -q '"status":"ok"'; then
+
                         echo "Application health check passed."
                         exit 0
                       fi
+
+                      echo "Waiting for test container... attempt ${attempt}/10"
                       sleep 2
                     done
 
@@ -83,6 +99,7 @@ pipeline {
             steps {
                 sh '''
                     set -eux
+
                     terraform -chdir=terraform apply \
                       -input=false \
                       -auto-approve \
@@ -97,8 +114,14 @@ pipeline {
             steps {
                 sh '''
                     set -eux
+
                     docker ps --filter "name=^/${CONTAINER_NAME}$"
-                    curl --fail --retry 10 --retry-delay 2 http://localhost:${APPLICATION_PORT}/health
+
+                    curl --fail \
+                      --retry 10 \
+                      --retry-delay 2 \
+                      http://host.docker.internal:${APPLICATION_PORT}/health
+
                     terraform -chdir=terraform output
                 '''
             }
@@ -107,11 +130,18 @@ pipeline {
 
     post {
         always {
-            sh 'docker image prune -f || true'
+            sh '''
+                docker rm -f "${CONTAINER_NAME}-test-${BUILD_NUMBER}" \
+                  >/dev/null 2>&1 || true
+
+                docker image prune -f || true
+            '''
         }
+
         success {
             echo 'Pipeline succeeded. Open http://localhost:5000'
         }
+
         failure {
             echo 'Pipeline failed. Review the stage logs above.'
         }
